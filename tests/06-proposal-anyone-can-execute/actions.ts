@@ -81,10 +81,34 @@ export const execute = async (
   ];
   const ix = await env.program.methods
     .execute()
-    .accountsPartial({ admin: executor.publicKey, proposal: env.proposal(id) })
+    .accountsPartial({
+      executor: executor.publicKey,
+      proposal: env.proposal(id),
+    })
     .remainingAccounts(accounts)
     .instruction();
   await sendIxs(env.context, [executor], ix);
+};
+
+export const cancel = async (
+  env: MultisigFixture,
+  id: number,
+  caller: Keypair,
+  proposer?: PublicKey,
+) => {
+  const proposalPda = env.proposal(id);
+  const targetProposer =
+    proposer ??
+    (await env.program.account.proposal.fetch(proposalPda)).proposer;
+  const ix = await env.program.methods
+    .cancel()
+    .accountsPartial({
+      caller: caller.publicKey,
+      proposal: proposalPda,
+      proposer: targetProposer,
+    })
+    .instruction();
+  await sendIxs(env.context, [caller], ix);
 };
 
 export { TOKEN_PROGRAM_ID };

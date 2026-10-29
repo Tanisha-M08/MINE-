@@ -5,6 +5,7 @@ pub mod instructions;
 pub mod state;
 
 pub use error::*;
+#[allow(ambiguous_glob_reexports)]
 pub use instructions::*;
 pub use state::*;
 
@@ -35,5 +36,9 @@ pub mod open_multisig {
 
     pub fn execute<'info>(ctx: Context<'_, '_, 'info, 'info, Execute<'info>>) -> Result<()> {
         instructions::execute(ctx)
+    }
+
+    pub fn cancel(ctx: Context<Cancel>) -> Result<()> {
+        instructions::cancel(ctx)
     }
 }
