@@ -10,12 +10,32 @@ pub struct Band {
 }
 
 pub fn read_band(
-    _update: &PriceUpdateV2,
-    _feed_id: &[u8; 32],
-    _max_age: u64,
-    _clock: &Clock,
+    update: &PriceUpdateV2,
+    feed_id: &[u8; 32],
+    max_age: u64,
+    clock: &Clock,
 ) -> Result<Band> {
-    todo!()
+    let price = update
+        .get_price_no_older_than(clock, max_age, feed_id)
+        .map_err(|e| match e {
+            pyth_solana_receiver_sdk::error::GetPriceError::PriceTooOld => {
+                error!(MarketError::StalePrice)
+            }
+            _ => error!(MarketError::InvalidPrice),
+        })?;
+    require!(price.price > 0, MarketError::InvalidPrice);
+    let price_u64 = price.price as u64;
+    let low_raw = price_u64.saturating_sub(price.conf);
+    let mid_raw = price_u64;
+    let high_raw = price_u64
+        .checked_add(price.conf)
+        .ok_or(MarketError::MathOverflow)?;
+
+    let low = scale(low_raw, price.exponent)?;
+    let mid = scale(mid_raw, price.exponent)?;
+    let high = scale(high_raw, price.exponent)?;
+
+    Ok(Band { low, mid, high })
 }
 
 pub fn value(amount: u64, price: u64, decimals: u8) -> Result<u128> {

@@ -17,7 +17,7 @@ export const initBankrun = async <IDL extends Idl>(idl: IDL) => {
   const accounts: Keypair[] = [];
   const accountsToInject: AddedAccount[] = [];
 
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 10; i++) {
     const keypair = Keypair.generate();
     accounts.push(keypair);
 

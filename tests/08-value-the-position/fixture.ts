@@ -49,6 +49,7 @@ export interface MarketFixture {
 }
 
 export const setupMarket = async (): Promise<MarketFixture> => {
+  idl.metadata.name = "position_value";
   const { context, program, accounts } = await initBankrun(idl as PositionValue);
   const payer = context.payer;
   const liquidator = accounts[0];
