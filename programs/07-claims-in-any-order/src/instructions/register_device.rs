@@ -20,7 +20,7 @@ pub struct RegisterDevice<'info> {
 pub fn register_device(ctx: Context<RegisterDevice>) -> Result<()> {
     ctx.accounts.device.set_inner(Device {
         owner: ctx.accounts.owner.key(),
-        nonce: 0,
+        paid: 0,
         bump: ctx.bumps.device,
     });
     Ok(())

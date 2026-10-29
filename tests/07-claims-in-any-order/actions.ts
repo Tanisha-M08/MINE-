@@ -10,33 +10,31 @@ import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { sendIxs } from "../helpers";
 import { ClaimsFixture } from "./fixture";
 
-/** The message the oracle signs: device, amount as u64 LE, nonce as u64 LE. */
-export const claimMessage = (device: PublicKey, amount: BN, nonce: BN) =>
-  Buffer.concat([
-    device.toBuffer(),
-    amount.toArrayLike(Buffer, "le", 8),
-    nonce.toArrayLike(Buffer, "le", 8),
-  ]);
+/** The message the oracle signs: device (32 bytes), total as u64 LE (8 bytes). */
+export const claimMessage = (device: PublicKey, total: BN) =>
+  Buffer.concat([device.toBuffer(), total.toArrayLike(Buffer, "le", 8)]);
 
 export const claim = async (
   env: ClaimsFixture,
-  amount: BN,
-  nonce: BN,
+  total: BN,
   caller: Keypair = env.payer,
   signer: Keypair = env.oracle,
+  instructions: PublicKey = SYSVAR_INSTRUCTIONS_PUBKEY,
+  customMessage?: Buffer,
 ) => {
+  const message = customMessage ?? claimMessage(env.device, total);
   const signatureCheck = Ed25519Program.createInstructionWithPrivateKey({
     privateKey: signer.secretKey,
-    message: claimMessage(env.device, amount, nonce),
+    message,
   });
   const ix = await env.program.methods
-    .claim(amount, nonce)
+    .claim(total)
     .accountsPartial({
       caller: caller.publicKey,
       device: env.device,
       mint: env.mint,
       ownerTokens: env.ownerTokens,
-      instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+      instructions,
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .instruction();

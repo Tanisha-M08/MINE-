@@ -33,6 +33,7 @@ export interface ClaimsFixture {
 }
 
 export const setupClaims = async (): Promise<ClaimsFixture> => {
+  idl.metadata.name = "total_claims";
   const { context, program, accounts } = await initBankrun(idl as TotalClaims);
   const payer = context.payer;
   const [oracle, owner] = accounts;
