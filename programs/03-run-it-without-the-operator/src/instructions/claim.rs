@@ -3,6 +3,71 @@ use anchor_spl::token::{transfer_checked, Mint, Token, TokenAccount, TransferChe
 
 use crate::{Config, RewardsError, User};
 
+/// The admin credits a user with a reward. This is where rewards come from; it stays.
+/// No payout occurs here—tokens only move when `claim` is executed.
+#[derive(Accounts)]
+pub struct Accrue<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump, has_one = admin)]
+    pub config: Account<'info, Config>,
+    /// CHECK: the user the reward is credited to; only their key is needed.
+    pub owner: UncheckedAccount<'info>,
+    #[account(
+        init_if_needed,
+        payer = admin,
+        space = 8 + User::INIT_SPACE,
+        seeds = [b"user", owner.key().as_ref()],
+        bump,
+    )]
+    pub user: Account<'info, User>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn accrue(ctx: Context<Accrue>, amount: u64) -> Result<()> {
+    let user = &mut ctx.accounts.user;
+    user.owner = ctx.accounts.owner.key();
+    user.bump = ctx.bumps.user;
+    user.pending = user
+        .pending
+        .checked_add(amount)
+        .ok_or(RewardsError::MathOverflow)?;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct Initialize<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(init, payer = admin, space = 8 + Config::INIT_SPACE, seeds = [b"config"], bump)]
+    pub config: Account<'info, Config>,
+    pub mint: Account<'info, Mint>,
+    #[account(
+        init,
+        payer = admin,
+        seeds = [b"vault"],
+        bump,
+        token::mint = mint,
+        token::authority = config,
+    )]
+    pub vault: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn initialize(ctx: Context<Initialize>, oracle: Pubkey, max_price_age: i64) -> Result<()> {
+    ctx.accounts.config.set_inner(Config {
+        admin: ctx.accounts.admin.key(),
+        oracle,
+        mint: ctx.accounts.mint.key(),
+        price: 0,
+        price_time: 0,
+        max_price_age,
+        bump: ctx.bumps.config,
+    });
+    Ok(())
+}
+
 pub const CALLER_FEE_BPS: u64 = 100; // 1%
 pub const MAX_CALLER_FEE: u64 = 1_000_000; // 1 token (assuming 6 decimals)
 

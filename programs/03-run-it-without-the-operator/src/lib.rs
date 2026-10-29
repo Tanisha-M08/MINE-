@@ -16,11 +16,27 @@ pub mod operator_free {
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>, oracle: Pubkey, max_price_age: i64) -> Result<()> {
-        instructions::initialize(ctx, oracle, max_price_age)
+        ctx.accounts.config.set_inner(Config {
+            admin: ctx.accounts.admin.key(),
+            oracle,
+            mint: ctx.accounts.mint.key(),
+            price: 0,
+            price_time: 0,
+            max_price_age,
+            bump: ctx.bumps.config,
+        });
+        Ok(())
     }
 
     pub fn accrue(ctx: Context<Accrue>, amount: u64) -> Result<()> {
-        instructions::accrue(ctx, amount)
+        let user = &mut ctx.accounts.user;
+        user.owner = ctx.accounts.owner.key();
+        user.bump = ctx.bumps.user;
+        user.pending = user
+            .pending
+            .checked_add(amount)
+            .ok_or(RewardsError::MathOverflow)?;
+        Ok(())
     }
 
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
