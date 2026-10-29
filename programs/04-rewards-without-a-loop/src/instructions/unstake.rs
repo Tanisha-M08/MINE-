@@ -20,14 +20,24 @@ pub struct Unstake<'info> {
 }
 
 pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
-    let staker = &mut ctx.accounts.staker;
-    require!(staker.stake >= amount, PoolError::InsufficientStake);
-    staker.stake -= amount;
     let pool = &mut ctx.accounts.pool;
+    let staker = &mut ctx.accounts.staker;
+
+    require!(staker.stake >= amount, PoolError::InsufficientStake);
+
+    // Settle what the staker is owed before the stake changes, never after
+    pool.settle(staker)?;
+
+    staker.stake = staker
+        .stake
+        .checked_sub(amount)
+        .ok_or(PoolError::MathOverflow)?;
+
     pool.total_staked = pool
         .total_staked
         .checked_sub(amount)
         .ok_or(PoolError::MathOverflow)?;
+
     let seeds: &[&[u8]] = &[b"pool", &[pool.bump]];
     transfer_checked(
         CpiContext::new_with_signer(

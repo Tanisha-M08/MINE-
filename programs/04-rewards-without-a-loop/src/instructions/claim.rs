@@ -20,12 +20,19 @@ pub struct Claim<'info> {
 }
 
 pub fn claim(ctx: Context<Claim>) -> Result<()> {
-    let amount = ctx.accounts.staker.pending;
-    ctx.accounts.staker.pending = 0;
+    let pool = &ctx.accounts.pool;
+    let staker = &mut ctx.accounts.staker;
+
+    // Settle accumulated rewards up to the current pool reward_per_token
+    pool.settle(staker)?;
+
+    let amount = staker.pending;
+    staker.pending = 0;
     if amount == 0 {
         return Ok(());
     }
-    let seeds: &[&[u8]] = &[b"pool", &[ctx.accounts.pool.bump]];
+
+    let seeds: &[&[u8]] = &[b"pool", &[pool.bump]];
     transfer_checked(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),

@@ -28,6 +28,7 @@ pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         admin: ctx.accounts.admin.key(),
         mint: ctx.accounts.mint.key(),
         total_staked: 0,
+        reward_per_token: 0,
         bump: ctx.bumps.pool,
     });
     Ok(())
