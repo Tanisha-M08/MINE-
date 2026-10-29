@@ -36,10 +36,17 @@ Show with two messages what happens to the paid amount in each order, and what a
 What does `claim` compare the message with, and what does it never compare it with?
 
 - **What `claim` compares the message with:**
-  1. The signature's recovered public key is compared with `config.oracle` stored in program configuration.
-  2. The sysvar account address is compared against the canonical `sysvar::instructions::ID` before reading.
-  3. The signed payload is compared with the expected serialization of `(device_pubkey || total)`.
-  4. The signed `total` is compared with the on-chain `device.paid` balance: if $\text{total} > \text{paid}$, it pays the difference $(\text{total} - \text{paid})$ and updates $\text{paid} \gets \text{total}$; otherwise it does nothing.
+  1. **Instructions sysvar address**: The sysvar account address is validated against `solana_program::sysvar::instructions::ID` both declaratively (`#[account(address = ix_sysvar::ID @ ClaimError::NotEd25519)]`) and imperatively via `require_keys_eq!` before any bytes or instruction indices are accessed.
+  2. **Ed25519 precompile instruction parser**:
+     - The parser (`parse_ed25519`) loads the preceding instruction `(current_index - 1)` after asserting `current_index > 0`.
+     - It checks `ix.program_id == ed25519_program::ID` (`ClaimError::NotEd25519`), ensuring the native Ed25519 precompile ran and verified the signature.
+     - It checks header length ($\ge 16$ bytes) and signature count (`data[0] == 1`).
+     - It validates offsets (`sig_ix == 0xffff`, `pk_ix == 0xffff`, `msg_ix == 0xffff`) ensuring the signature, public key, and message data are embedded in this instruction.
+     - It bounds-checks slice offsets against buffer length before safely extracting the 32-byte public key and message.
+     - The complete parser implementation is embedded directly in both `instructions/claim.rs` and `ed25519.rs`.
+  3. **Stored oracle key**: The signature's recovered public key is compared with `config.oracle` stored in the program's configuration PDA (`ClaimError::WrongSigner`).
+  4. **Signed payload**: The signed message bytes are compared with the expected serialization of `(device_pubkey || total)` (40 bytes: 32 bytes device + 8 bytes total LE) (`ClaimError::MessageMismatch`).
+  5. **High-water mark**: The signed `total` is compared with the on-chain `device.paid` balance: if $\text{total} > \text{paid}$, it pays the difference $(\text{total} - \text{paid})$ and advances $\text{paid} \gets \text{total}$; otherwise it does nothing.
 
 - **What it never compares it with:**
   - It **never** compares the message with a sequence counter, nonce, or timestamp.

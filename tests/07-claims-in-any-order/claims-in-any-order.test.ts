@@ -1,7 +1,8 @@
 import { assert } from "chai";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
-import { oneToken, tokenBalance } from "../helpers";
+import { oneToken, sendIxs, tokenBalance } from "../helpers";
 import { ClaimsFixture, setupClaims } from "./fixture";
 import { claim, claimMessage } from "./actions";
 
@@ -142,6 +143,49 @@ describe("07-claims-in-any-order", () => {
     const fakeSysvar = Keypair.generate().publicKey;
     await catchError(
       claim(env, oneToken().muln(10), env.payer, env.oracle, fakeSysvar),
+      "NotEd25519",
+      "0x1771",
+    );
+  });
+
+  it("refuses a claim when the instruction before it is missing", async () => {
+    const ix = await env.program.methods
+      .claim(oneToken().muln(10))
+      .accountsPartial({
+        caller: env.payer.publicKey,
+        device: env.device,
+        mint: env.mint,
+        ownerTokens: env.ownerTokens,
+        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .instruction();
+    await catchError(
+      sendIxs(env.context, [env.payer], ix),
+      "NotEd25519",
+      "0x1771",
+    );
+  });
+
+  it("refuses a claim when preceded by an instruction that is not Ed25519", async () => {
+    const dummyIx = SystemProgram.transfer({
+      fromPubkey: env.payer.publicKey,
+      toPubkey: env.payer.publicKey,
+      lamports: 0,
+    });
+    const ix = await env.program.methods
+      .claim(oneToken().muln(10))
+      .accountsPartial({
+        caller: env.payer.publicKey,
+        device: env.device,
+        mint: env.mint,
+        ownerTokens: env.ownerTokens,
+        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .instruction();
+    await catchError(
+      sendIxs(env.context, [env.payer], dummyIx, ix),
       "NotEd25519",
       "0x1771",
     );

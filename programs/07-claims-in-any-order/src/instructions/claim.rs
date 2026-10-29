@@ -1,8 +1,42 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::ed25519_program;
+use anchor_lang::solana_program::instruction::Instruction;
 use anchor_lang::solana_program::sysvar::instructions as ix_sysvar;
 use anchor_spl::token::{transfer_checked, Mint, Token, TokenAccount, TransferChecked};
 
-use crate::{parse_ed25519, ClaimError, Config, Device};
+use crate::{ClaimError, Config, Device};
+
+/// What an Ed25519 instruction verified: the key that signed and the message.
+pub struct Ed25519Signed {
+    pub pubkey: Pubkey,
+    pub message: Vec<u8>,
+}
+
+/// Parses a single-signature instruction built for the Ed25519 program (the layout
+/// `Ed25519Program.createInstructionWithPrivateKey` produces): a 16-byte header with
+/// offsets, then the public key, the signature and the message, all inside this instruction.
+pub fn parse_ed25519(ix: &Instruction) -> Result<Ed25519Signed> {
+    require_keys_eq!(ix.program_id, ed25519_program::ID, ClaimError::NotEd25519);
+    let d = &ix.data;
+    require!(d.len() >= 16 && d[0] == 1, ClaimError::MalformedEd25519);
+    let u16_at = |i: usize| u16::from_le_bytes([d[i], d[i + 1]]) as usize;
+    let (sig_ix, pk_off, pk_ix) = (u16_at(4), u16_at(6), u16_at(8));
+    let (msg_off, msg_size, msg_ix) = (u16_at(10), u16_at(12), u16_at(14));
+    require!(
+        sig_ix == 0xffff && pk_ix == 0xffff && msg_ix == 0xffff,
+        ClaimError::MalformedEd25519
+    );
+    require!(
+        d.len() >= pk_off + 32 && d.len() >= msg_off + msg_size,
+        ClaimError::MalformedEd25519
+    );
+    let mut pubkey = [0u8; 32];
+    pubkey.copy_from_slice(&d[pk_off..pk_off + 32]);
+    Ok(Ed25519Signed {
+        pubkey: Pubkey::from(pubkey),
+        message: d[msg_off..msg_off + msg_size].to_vec(),
+    })
+}
 
 /// Pays the difference between the signed total and the amount already paid.
 /// Anyone can bring a signed total from the oracle.
@@ -45,16 +79,15 @@ pub fn claim(ctx: Context<Claim>, total: u64) -> Result<()> {
     let current_index =
         ix_sysvar::load_current_index_checked(&ctx.accounts.instructions.to_account_info())
             .map_err(|_| ClaimError::NotEd25519)?;
-    let sig_index = if current_index > 0 {
-        current_index - 1
-    } else {
-        0
-    };
-    let signature_check =
-        ix_sysvar::load_instruction_at_checked(sig_index as usize, &ctx.accounts.instructions)?;
+    require!(current_index > 0, ClaimError::NotEd25519);
+    let signature_check = ix_sysvar::load_instruction_at_checked(
+        (current_index - 1) as usize,
+        &ctx.accounts.instructions.to_account_info(),
+    )
+    .map_err(|_| ClaimError::NotEd25519)?;
     let signed = parse_ed25519(&signature_check)?;
 
-    // 3. Verify oracle signer
+    // 3. Verify oracle signer against stored config.oracle
     require_keys_eq!(
         signed.pubkey,
         ctx.accounts.config.oracle,

@@ -13,6 +13,12 @@ pub struct Ed25519Signed {
 /// Parses a single-signature instruction built for the Ed25519 program (the layout
 /// `Ed25519Program.createInstructionWithPrivateKey` produces): a 16-byte header with
 /// offsets, then the public key, the signature and the message, all inside this instruction.
+///
+/// Verifies:
+/// 1. The instruction belongs to the official Ed25519 program ID (`ed25519_program::ID`).
+/// 2. Header data is at least 16 bytes and contains exactly 1 signature (`d[0] == 1`).
+/// 3. Offsets indicate the signature, public key, and message reside in this instruction (`0xffff`).
+/// 4. Buffer lengths are strictly bounds-checked before reading slices.
 pub fn parse_ed25519(ix: &Instruction) -> Result<Ed25519Signed> {
     require_keys_eq!(ix.program_id, ed25519_program::ID, ClaimError::NotEd25519);
     let d = &ix.data;
