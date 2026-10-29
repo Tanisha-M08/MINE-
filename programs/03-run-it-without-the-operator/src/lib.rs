@@ -1,12 +1,11 @@
 use anchor_lang::prelude::*;
 
-pub mod ed25519;
 pub mod error;
 pub mod instructions;
 pub mod state;
 
-pub use ed25519::*;
 pub use error::*;
+#[allow(ambiguous_glob_reexports)]
 pub use instructions::*;
 pub use state::*;
 
@@ -29,8 +28,8 @@ pub mod operator_free {
         instructions::accrue(ctx, amount)
     }
 
-    pub fn pay_reward(ctx: Context<PayReward>) -> Result<()> {
-        instructions::pay_reward(ctx)
+    pub fn claim(ctx: Context<Claim>) -> Result<()> {
+        instructions::claim(ctx)
     }
 
     pub fn set_price(ctx: Context<SetPrice>, price: u64) -> Result<()> {

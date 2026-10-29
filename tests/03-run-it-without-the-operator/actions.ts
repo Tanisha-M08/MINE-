@@ -1,8 +1,13 @@
 import { BN } from "@coral-xyz/anchor";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import {
+  Ed25519Program,
+  Keypair,
+  PublicKey,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
+} from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
-import { sendIxs } from "../helpers";
+import { getTime, sendIxs } from "../helpers";
 import { RewardsFixture } from "./fixture";
 
 export const accrue = async (
@@ -17,34 +22,57 @@ export const accrue = async (
   await sendIxs(env.context, [env.payer], ix);
 };
 
-export const payReward = async (
+export const claim = async (
   env: RewardsFixture,
+  caller: Keypair,
   owner: PublicKey,
   ownerTokens: PublicKey,
+  callerTokens: PublicKey,
 ) => {
   const ix = await env.program.methods
-    .payReward()
+    .claim()
     .accountsPartial({
-      admin: env.payer.publicKey,
+      caller: caller.publicKey,
       user: env.userAccount(owner),
       mint: env.mint,
       userTokens: ownerTokens,
+      callerTokens,
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .instruction();
-  await sendIxs(env.context, [env.payer], ix);
+  await sendIxs(env.context, [caller], ix);
+};
+
+export const priceMessage = (price: BN, timestamp: number | bigint): Buffer => {
+  const buf = Buffer.alloc(16);
+  buf.writeBigUInt64LE(BigInt(price.toString()), 0);
+  buf.writeBigInt64LE(BigInt(timestamp.toString()), 8);
+  return buf;
 };
 
 export const setPrice = async (
   env: RewardsFixture,
   price: BN,
-  signer: Keypair = env.bot,
+  signer: Keypair = env.stranger,
+  oracle: Keypair = env.oracle,
+  timestamp?: number | bigint,
+  instructions: PublicKey = SYSVAR_INSTRUCTIONS_PUBKEY,
+  messageOverride?: Buffer,
 ) => {
+  const time = timestamp ?? (await getTime(env.context));
+  const message = messageOverride ?? priceMessage(price, time);
+  const signatureCheck = Ed25519Program.createInstructionWithPrivateKey({
+    privateKey: oracle.secretKey,
+    message,
+  });
   const ix = await env.program.methods
     .setPrice(price)
-    .accountsPartial({ bot: signer.publicKey })
+    .accountsPartial({
+      caller: signer.publicKey,
+      instructions,
+    })
     .instruction();
-  await sendIxs(env.context, [signer], ix);
+  await sendIxs(env.context, [signer], signatureCheck, ix);
 };
 
 export const buy = async (
