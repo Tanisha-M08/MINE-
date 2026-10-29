@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{transfer_checked, Mint, Token, TokenAccount, TransferChecked};
 
-use crate::{Book, BookError, NONE};
+use crate::{Book, BookError, CELLS, NONE};
 
 #[derive(Accounts)]
 pub struct PlaceOrder<'info> {
@@ -18,12 +18,12 @@ pub struct PlaceOrder<'info> {
 }
 
 /// Places an order. `hint` is the cell the new order should go after, or `None` for the head.
-/// The given program ignores the hint and walks the list from the head instead.
+/// Performs O(1) local neighbor checks without walking the book.
 pub fn place_order(
     ctx: Context<PlaceOrder>,
     price: u64,
     size: u64,
-    _hint: Option<u16>,
+    hint: Option<u16>,
 ) -> Result<()> {
     transfer_checked(
         CpiContext::new(
@@ -40,19 +40,52 @@ pub fn place_order(
     )?;
 
     let mut book = ctx.accounts.book.load_mut()?;
+
+    // 1. Verify the book has capacity
     let cell = book.free_head;
     require!(cell != NONE, BookError::BookFull);
+
+    // 2. Perform local neighbor checks using the hint
+    let after = match hint {
+        None => {
+            // Inserting at the head: book must be empty (head == NONE) or the existing head must be strictly cheaper
+            let head = book.head;
+            if head != NONE {
+                require!((head as usize) < CELLS, BookError::BadHint);
+                let head_cell = &book.cells[head as usize];
+                require!(
+                    head_cell.alive == 1 && head_cell.price < price,
+                    BookError::BadHint
+                );
+            }
+            NONE
+        }
+        Some(h) => {
+            // Inserting after cell `h`:
+            // - `h` must be a valid, live cell with price >= new order price
+            require!((h as usize) < CELLS, BookError::BadHint);
+            let hint_cell = &book.cells[h as usize];
+            require!(
+                hint_cell.alive == 1 && hint_cell.price >= price,
+                BookError::BadHint
+            );
+
+            // - The cell currently following `h` must be NONE (tail) or alive with price strictly below new price
+            let next = hint_cell.next;
+            if next != NONE {
+                require!((next as usize) < CELLS, BookError::BadHint);
+                let next_cell = &book.cells[next as usize];
+                require!(
+                    next_cell.alive == 1 && next_cell.price < price,
+                    BookError::BadHint
+                );
+            }
+            h
+        }
+    };
+
+    // 3. Allocate free cell and link
     book.free_head = book.cells[cell as usize].next;
-
-    // Walk from the head until the next order is cheaper than the new one. Older orders at the
-    // same price stay in front. This is the O(n) part.
-    let mut after = NONE;
-    let mut cursor = book.head;
-    while cursor != NONE && book.cells[cursor as usize].price >= price {
-        after = cursor;
-        cursor = book.cells[cursor as usize].next;
-    }
-
     link(
         &mut book,
         cell,
@@ -61,6 +94,7 @@ pub fn place_order(
         price,
         size,
     );
+
     Ok(())
 }
 
