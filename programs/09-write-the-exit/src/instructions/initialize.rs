@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
 
-use crate::Config;
+use crate::{Config, DEX_PROGRAM_ID};
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -28,6 +28,9 @@ pub fn initialize(ctx: Context<Initialize>, executor: Pubkey) -> Result<()> {
         admin: ctx.accounts.admin.key(),
         executor,
         mint: ctx.accounts.mint.key(),
+        dex_program: DEX_PROGRAM_ID,
+        pending_dex: None,
+        dex_change_ready_at: 0,
         bump: ctx.bumps.config,
     });
     Ok(())

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{transfer_checked, Mint, Token, TokenAccount, TransferChecked};
 
-use crate::{Config, Entry, Round, RoundError};
+use crate::{Config, Entry, Round, RoundError, REFUND_DELAY};
 
 #[derive(Accounts)]
 pub struct Settle<'info> {
@@ -24,9 +24,11 @@ pub struct Settle<'info> {
 pub fn settle(ctx: Context<Settle>) -> Result<()> {
     let round = &mut ctx.accounts.round;
     require!(!round.settled, RoundError::AlreadySettled);
+    let now = Clock::get()?.unix_timestamp;
+    require!(now >= round.deadline, RoundError::RoundNotEnded);
     require!(
-        Clock::get()?.unix_timestamp >= round.deadline,
-        RoundError::RoundNotEnded
+        now < round.deadline + REFUND_DELAY,
+        RoundError::SettlementExpired
     );
     round.settled = true;
     let seeds: &[&[u8]] = &[b"config", &[ctx.accounts.config.bump]];

@@ -38,6 +38,7 @@ export interface RoundFixture {
 }
 
 export const setupRounds = async (): Promise<RoundFixture> => {
+  idl.metadata.name = "round_exit";
   const { context, program, accounts } = await initBankrun(idl as RoundExit);
   const payer = context.payer;
   const executor = accounts[0];

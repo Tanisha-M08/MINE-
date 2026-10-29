@@ -7,6 +7,7 @@ pub mod state;
 
 pub use constants::*;
 pub use error::*;
+#[allow(ambiguous_glob_reexports)]
 pub use instructions::*;
 pub use state::*;
 
@@ -38,5 +39,21 @@ pub mod round_exit {
 
     pub fn settle(ctx: Context<Settle>) -> Result<()> {
         instructions::settle(ctx)
+    }
+
+    pub fn refund(ctx: Context<Refund>) -> Result<()> {
+        instructions::refund(ctx)
+    }
+
+    pub fn propose_dex(ctx: Context<ProposeDex>, new_dex: Pubkey) -> Result<()> {
+        instructions::propose_dex(ctx, new_dex)
+    }
+
+    pub fn apply_dex(ctx: Context<ApplyDex>) -> Result<()> {
+        instructions::apply_dex(ctx)
+    }
+
+    pub fn cancel_dex_proposal(ctx: Context<CancelDexProposal>) -> Result<()> {
+        instructions::cancel_dex_proposal(ctx)
     }
 }
