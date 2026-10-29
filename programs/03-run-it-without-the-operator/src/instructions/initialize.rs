@@ -23,15 +23,9 @@ pub struct Initialize<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn initialize(
-    ctx: Context<Initialize>,
-    bot: Pubkey,
-    oracle: Pubkey,
-    max_price_age: i64,
-) -> Result<()> {
+pub fn initialize(ctx: Context<Initialize>, oracle: Pubkey, max_price_age: i64) -> Result<()> {
     ctx.accounts.config.set_inner(Config {
         admin: ctx.accounts.admin.key(),
-        bot,
         oracle,
         mint: ctx.accounts.mint.key(),
         price: 0,

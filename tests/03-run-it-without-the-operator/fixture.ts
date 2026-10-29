@@ -52,7 +52,7 @@ export const setupRewards = async (): Promise<RewardsFixture> => {
   );
 
   const initIx = await program.methods
-    .initialize(bot.publicKey, oracle.publicKey, new BN(MAX_PRICE_AGE))
+    .initialize(oracle.publicKey, new BN(MAX_PRICE_AGE))
     .accountsPartial({
       admin: payer.publicKey,
       mint,

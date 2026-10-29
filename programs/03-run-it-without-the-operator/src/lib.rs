@@ -15,13 +15,8 @@ declare_id!("HReKhsVu24hzPjuWzM5Ak5qr8LC1HvtUZdghEikbNA4s");
 pub mod operator_free {
     use super::*;
 
-    pub fn initialize(
-        ctx: Context<Initialize>,
-        bot: Pubkey,
-        oracle: Pubkey,
-        max_price_age: i64,
-    ) -> Result<()> {
-        instructions::initialize(ctx, bot, oracle, max_price_age)
+    pub fn initialize(ctx: Context<Initialize>, oracle: Pubkey, max_price_age: i64) -> Result<()> {
+        instructions::initialize(ctx, oracle, max_price_age)
     }
 
     pub fn accrue(ctx: Context<Accrue>, amount: u64) -> Result<()> {

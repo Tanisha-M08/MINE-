@@ -3,9 +3,22 @@ import {
   Ed25519Program,
   Keypair,
   LAMPORTS_PER_SOL,
+  SystemProgram,
+  Transaction,
 } from "@solana/web3.js";
+import {
+  createAssociatedTokenAccountInstruction,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 
-import { getTime, oneToken, sendIxs, toBN, tokenBalance } from "../helpers";
+import {
+  getTime,
+  oneToken,
+  processTransaction,
+  sendIxs,
+  toBN,
+  tokenBalance,
+} from "../helpers";
 import { MAX_PRICE_AGE, RewardsFixture, setupRewards } from "./fixture";
 import { accrue, buy, claim, priceMessage, setPrice } from "./actions";
 
@@ -22,8 +35,7 @@ const catchError = async (
   }
   assert.isNotNull(err, `Expected error ${expectedName} (${expectedHex})`);
   const errStr = err!.toString();
-  const matched =
-    errStr.includes(expectedName) || errStr.includes(expectedHex);
+  const matched = errStr.includes(expectedName) || errStr.includes(expectedHex);
   assert.isTrue(
     matched,
     `Error "${errStr}" must contain either "${expectedName}" or "${expectedHex}"`,
@@ -72,27 +84,64 @@ describe("03-run-it-without-the-operator", () => {
   });
 
   it("a wallet that is neither admin nor bot claims for the user and keeps the fee", async () => {
-    // Accrue 100 tokens to user
+    // 1. Create a fresh claiming wallet using Keypair.generate() inside the test
+    const freshClaimer = Keypair.generate();
+    const freshTokens = getAssociatedTokenAddressSync(
+      env.mint,
+      freshClaimer.publicKey,
+    );
+
+    // 2. Fund it using the existing test harness and create its token account
+    await processTransaction(
+      env.context,
+      new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: env.payer.publicKey,
+          toPubkey: freshClaimer.publicKey,
+          lamports: 10 * LAMPORTS_PER_SOL,
+        }),
+        createAssociatedTokenAccountInstruction(
+          env.payer.publicKey,
+          freshTokens,
+          freshClaimer.publicKey,
+          env.mint,
+        ),
+      ),
+      [env.payer],
+    );
+
+    // 3. Prove it is neither the admin nor the fixture's bot
+    assert.notEqual(
+      freshClaimer.publicKey.toBase58(),
+      env.payer.publicKey.toBase58(),
+      "Claimer must not be the admin",
+    );
+    assert.notEqual(
+      freshClaimer.publicKey.toBase58(),
+      env.bot.publicKey.toBase58(),
+      "Claimer must not be the bot",
+    );
+
+    // 4. Have it claim rewards for another user (env.user)
     await accrue(env, env.user.publicKey, oneToken().muln(100));
 
     const userBefore = await tokenBalance(env.context, env.userTokens);
-    const strangerBefore = await tokenBalance(env.context, env.strangerTokens);
+    const claimerBefore = await tokenBalance(env.context, freshTokens);
 
-    // Stranger (permissionless crank) claims for user
     await claim(
       env,
-      env.stranger,
+      freshClaimer,
       env.user.publicKey,
       env.userTokens,
-      env.strangerTokens,
+      freshTokens,
     );
 
     const userAfter = await tokenBalance(env.context, env.userTokens);
-    const strangerAfter = await tokenBalance(env.context, env.strangerTokens);
+    const claimerAfter = await tokenBalance(env.context, freshTokens);
 
-    // 1% fee capped at 1 token: user receives 99 tokens, stranger receives 1 token fee
+    // Verify user receives the correct payout (99 tokens) and caller receives the fee (1 token)
     const expectedUserGain = oneToken().muln(99);
-    const expectedStrangerFee = oneToken().muln(1);
+    const expectedClaimerFee = oneToken().muln(1);
 
     assert.equal(
       (userAfter - userBefore).toString(),
@@ -100,9 +149,45 @@ describe("03-run-it-without-the-operator", () => {
       "User must receive pending reward minus caller fee",
     );
     assert.equal(
-      (strangerAfter - strangerBefore).toString(),
-      expectedStrangerFee.toString(),
-      "Stranger must receive 1% caller fee (capped at 1 token)",
+      (claimerAfter - claimerBefore).toString(),
+      expectedClaimerFee.toString(),
+      "Fresh claimer must receive 1% caller fee (capped at 1 token)",
+    );
+
+    // 5. Also prove a signed oracle price update and buy work without a bot transaction or signature
+    const price = toBN(LAMPORTS_PER_SOL / 50); // 0.02 SOL per token
+    const now = await getTime(env.context);
+
+    // Built in test with oracle signature, executed by freshClaimer with NO bot signature/transaction
+    const sigIx = Ed25519Program.createInstructionWithPrivateKey({
+      privateKey: env.oracle.secretKey,
+      message: priceMessage(price, now),
+    });
+
+    const setPriceIx = await env.program.methods
+      .setPrice(price)
+      .accountsPartial({
+        caller: freshClaimer.publicKey,
+      })
+      .instruction();
+
+    const buyIx = await env.program.methods
+      .buy(toBN(LAMPORTS_PER_SOL / 5)) // 0.2 SOL => 10 tokens at 0.02 SOL/token
+      .accountsPartial({
+        buyer: freshClaimer.publicKey,
+        mint: env.mint,
+        buyerTokens: freshTokens,
+      })
+      .instruction();
+
+    const balanceBeforeBuy = await tokenBalance(env.context, freshTokens);
+    await sendIxs(env.context, [freshClaimer], sigIx, setPriceIx, buyIx);
+    const balanceAfterBuy = await tokenBalance(env.context, freshTokens);
+
+    assert.equal(
+      (balanceAfterBuy - balanceBeforeBuy).toString(),
+      oneToken().muln(10).toString(),
+      "Fresh wallet bought tokens using signed oracle price update with no bot involved",
     );
   });
 
@@ -173,13 +258,7 @@ describe("03-run-it-without-the-operator", () => {
     const staleTime = Number(now) - (MAX_PRICE_AGE + 1);
 
     await catchError(
-      setPrice(
-        env,
-        price,
-        env.stranger,
-        env.oracle,
-        staleTime,
-      ),
+      setPrice(env, price, env.stranger, env.oracle, staleTime),
       "StalePrice",
       "0x1772",
     );
@@ -189,12 +268,7 @@ describe("03-run-it-without-the-operator", () => {
     const price = toBN(LAMPORTS_PER_SOL / 100);
     // Bot tries to sign the price update instead of the configured oracle
     await catchError(
-      setPrice(
-        env,
-        price,
-        env.stranger,
-        env.bot,
-      ),
+      setPrice(env, price, env.stranger, env.bot),
       "KeyNotAllowed",
       "0x1776",
     );
@@ -245,14 +319,7 @@ describe("03-run-it-without-the-operator", () => {
     const fakeSysvar = Keypair.generate().publicKey;
 
     await catchError(
-      setPrice(
-        env,
-        price,
-        env.stranger,
-        env.oracle,
-        undefined,
-        fakeSysvar,
-      ),
+      setPrice(env, price, env.stranger, env.oracle, undefined, fakeSysvar),
       "WrongInstructionsSysvar",
       "0x1775",
     );
